@@ -1,0 +1,4 @@
+clc,clear,close all
+for j=1:10
+s(j)=fcn(j);
+end
