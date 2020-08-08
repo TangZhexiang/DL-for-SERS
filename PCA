@@ -1,0 +1,54 @@
+%% PCA直接处理
+%PCA算法效果并不理想，但是数据降维，性价比最高
+%% 数据读取
+clc,clear,close all
+data = xlsread('标准数据示例.xlsx');   %xlsread读取数据
+[hs,ls]=size(data);         %得出数据的维度
+x = data(2:hs,1); %  x取了第一列所有行
+i=2:ls;                  % i = 2:29,即2—29的所有数字按列排布，这里为啥要减一
+y = data(2:hs,i);             %y取了xls文件中去掉头尾两列的所有列
+concentration = data(1,2:ls);
+%% PCA分析
+AA=y';       %大小为6*1015  取了原数据的前六列
+bq = 10.^concentration;
+lvbo = AA;
+%lvbo=AA(1:5,:);                       %lvbo数组和AA数组相同
+[n,p] = size(lvbo)            % n = 6  ,p = 1015
+MEAN=mean(lvbo);     %求各变量的均值,求每列的平均值,此处MEAN的大小为1*1015,每列写了lvbo数组每一行的平均值
+STD=std(lvbo);             %求各变量的标准差
+MEAN=ones(n,p)*diag(MEAN);      %6*1015的单位矩阵乘以对角矩阵
+STD=ones(n,p)*diag(STD);
+x=(lvbo-MEAN)./STD;           %原始数据标准化 
+R=cov(x);         % 由于数据已经过标准化处理，故x的协方差矩阵等于其相关系数矩阵，即R=corrcoef(x).
+[V,D]=eig(R);    %函数eig的功能是对矩阵R进行正交对角化变换，矩阵D是以R的特征值为对角元的对角矩阵（对角元按从小到大的顺序排列），矩阵V是正交变换矩阵。
+DD=[];               %将特征值对角矩阵D改写为列向量DD
+for i=p:-1:1          %此处要注意eig函数的输出D中特征值的排列顺序
+DD=[DD;D(i,i)];
+end
+OFFER=DD/sum(DD);                %计算特征值的方差贡献率 
+cumOFFER=cumsum(DD)/sum(DD);        %计算特征值的方差累计贡献率  
+OUTCOME=[DD,OFFER,cumOFFER];       %综合输出计算结果 
+pri=1;
+for i=1:p
+  if cumOFFER(i)<=0.99
+     pri=i+1;                  %取前几个特征值,累计方差贡献超过85%
+  end
+end
+PCACOV=V(:,end:-1:end-pri+1);         %输出对应特征值的正交单位化的特征向量, 此处要注意eig函数的输出D中特征值的排列顺序和特征向量的排列顺序
+PCASCORE=x*PCACOV;                       %主成份得分
+Z=PCASCORE*OFFER([1:pri])/cumOFFER(pri);      %综合评分
+[ZZ,I]=sort(Z,'descend'); %样本排序        %[Y,I] = sort(X,DIM,MODE),I返回索引序列，它表示Y中的元素与X中元素的对应。%参数DIM表示对哪一个维数进行排序，例如当X是一个二维矩阵，当DIM=1时表示对X的每一列进行排序，当DIM=2时表示对X的每一行进行排序。%参数MODE表示按哪一种模式进行排序，当MODE=‘ascend’的时进行升序排序，当MODE=‘descend’时，进行降序排序。Y返回已经排好序的X。                                                                                             
+score=log10(Z);
+nd=-log10(bq);
+a=polyfit(Z(1:5,1)',nd,1);
+ci=polyval(a,Z);
+plot(Z(1:5,1),nd,'go','MarkerEdgeColor','k','MarkerFaceColor','g','MarkerSize',6);
+xlabel('主成分得分取log10');
+ylabel('浓度取-log10');
+hold on;
+plot(Z,ci,'linewidth',2,'markersize',16);
+legend('原始数据点','拟合曲线');
+sprintf('曲线方程：C=+(%0.5g)*T+(%0.5g)',a(1),a(2));
+C=+(-0.63207)*score(5,1)+(6.3173);
+JJ=real(C),
+J=10^-(JJ),
