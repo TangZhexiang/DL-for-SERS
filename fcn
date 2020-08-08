@@ -1,0 +1,109 @@
+function y=fcn(~)
+clc
+clear
+%载入数据之后的峰值定位,以及对应的BP网络输出
+data = load('yzh.txt');  %load读取数据
+x=data(:,1);            % x取了第一列
+x=x';                   %矩阵的转置，将列转变成行
+ls = 30;                %因为这里的片段处理，整体中其实已经说明了ls = 30
+for i=2:ls
+dat=data(:,i);           %dat分别读取了data中的每一列，而且每次只读一列
+N=length(dat);            % N = 1050
+lambda=5000;                 %二阶微分算子滤波
+I=speye(N);                 %将产生一个N*N的稀疏矩阵，对角线上的值为1
+D2 = spdiags(ones(N-2,1)*[1 -2 1],[0 1 2],N-2,N);
+%这条命令返回带状稀疏矩阵，D2的大小为1013 * 1015
+%ones(N-2,1)*[1 -2 1]为1013*3的数组，一三两列是1，第二列是-2  N-2，N分别指定了
+%行和列的维数,将会得到对角线分别为1 -2 1的矩阵，为什么要 N-2 因为要对称啊，
+%三条“对角线”
+trend = inv(I+lambda^2*D2'*D2)*dat; %inv(B)即为b的逆矩阵，即为(I+lambda^2*D2'*D2)\dat
+y=dat-trend;                %将y的数据从右往左写，y是一列一列的
+jxoutput(:,i-1)=[y];      %y每次只有一列，jxoutput从右边一步一步记录y的值   jxoutput极限输出
+end                              %其实上面的部分是扣除基线的
+global tzf                       %将特征峰定义为全局变量        
+result=zeros(ls,1015);           %建立一个30*1015的零矩阵
+k=1;
+for i=1:ls-1
+ss=jxoutput(:,i)'; 
+s=ss(1:1015);                    %ss的大小刚好是1*1015，即全部取了
+% subplot(h1); 整体代码里面有这一段，h1是定义的坐标轴
+plot(x,s)
+xlabel('波数');
+ylabel('幅值 A');
+title('原始信号');
+[c,l]=wavedec(s,3,'db1');   % wavedec 使用特定小波或特定的小波分解滤波器对执行多级一维小波分析。
+%[c,l] = wavedec(x,n,wname) 返回的信号的小波分解x在水平 n使用小波wname。
+%输出分解结构由小波分解向量c和簿记向量组成l，其中包含按级别的系数数。
+a3=appcoef(c,l,'db1',3);   %appcoef是一维小波分析函数，计算一维信号的近似系数 具体意义这里要查书，Google查不到
+d3=detcoef(c,l,3); %detcoef是一维小波分析函数   D = detcoef(C,L,N)N从小波分解结构中提取水平的细节系数[C,L]。
+d2=detcoef(c,l,2);
+d1=detcoef(c,l,1);
+softd1=wthresh(d1,'s',70);  % Y = wthresh(X,sorh,T) 返回由sorh向量或矩阵表示的软阈值或硬阈值X。T是阈值。
+softd2=wthresh(d2,'s',70); 
+softd3=wthresh(d3,'s',70);
+c2=[a3,softd3,softd2,softd1];
+s3=waverec(c2,l,'db1');  %X = waverec(C,L,'wname')X基于多级小波分解结构[C,L]和小波重构信号。
+result(k,1:1015)=s3;
+k=k+1;
+end                                  %中间这一段代码是小波滤波
+aa=result;
+bb=jxoutput';%这里转置取不取的出错地方不一样！ jxoutput可能意为简写输出或者并列输出
+xx=x(1,:);                 %  xx将x的内容全部取了出来，差不多就是赋值了
+t=1;                    
+for kk=1:ls-1               %看到这里,可以参考李津蓉寻峰函数的论文
+yy=aa(kk,:);  
+qjxqd=bb(kk,:);
+[v,l]=findpeaks(yy,'minpeakheight',200,'minpeakdistance',10);
+fz=bb(kk,l);
+  if size(l,2)>1
+     zz=x(1,l(1,:));
+     fz=bb(kk,l);
+  else
+       zz(1,8)=0;
+       fz(1,8)=0;
+  end
+n=1;
+cc=[zz;fz(1,:)];
+cc=cc';
+d=sortrows(cc,-2);
+if size(d,1)>8
+    dd=d(1:8,:);
+    elseif size(d,1)<8||size(d,1)>0
+       dd=d(1:size(d,1),:);
+       dd(size(d,1)+1:8,:)=0;
+else
+        dd(8,:)=0;
+end
+  tzf(:,2*t-1:2*t)=[dd];             %[dd]的大小为8*27
+  t=t+1;
+end
+A =tzf;
+hh=figure;
+t1=uitable('position',[50 50 500 300]);
+set(t1,'data',A)
+%现在开始elman神经网络处理
+aa=tzf(1:8,2:2:end);
+[a,PS]=mapminmax(aa);
+p_train=a(1:8,1:28);
+t_train=[-4 -4 -4 -4 -5 -5 -5 -5 -5 -6 -6 -6 -6 -6 -6 -6 -7 -7 -7 -7 -7 -8 -8 -8 -8 -8 -10 -10];
+p_test=a(1:8,1:end);
+t_test=[-4 -4 -4 -4 -5 -5 -5 -5 -5 -6 -6 -6 -6 -6 -6 -6 -7 -7 -7 -7 -7 -8 -8 -8 -8 -8 -10 -10 -10];
+nn=2;
+for i=1:1
+threshold=[-1 1;-1 1;-1 1;-1 1;-1 1;-1 1;-1 1;-1 1];
+net=newelm(threshold,[nn(i),1],{'tansig','purelin'});
+net.trainparam.epochs=2000;
+net.trainparam.show=20;
+net=init(net);
+net=train(net,p_train,t_train);             % 计算误差
+y=sim(net,p_test);                   %     error(i,:)=y-t_test;
+error(i,:)=y-t_test;
+end
+%%subplot(h3);     整体代码里面有这一段，h3是定义的坐标轴
+
+%下面这一段是为了写论文而加上去的
+first_error = mse(error);
+a_predict_result = sqrt(first_error);
+y = a_predict_result;
+
+
