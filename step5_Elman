@@ -1,0 +1,139 @@
+%% 预处理完后Elman神经网络预测浓度，这里测试集的选取是随机的，所以每次结果不一样
+%% 数据读取
+clc,clear,close all
+data = xlsread('标准数据示例.xlsx');   %xlsread读取数据
+[hs,ls]=size(data);         %得出数据的维度
+x = data(2:hs,1); 
+i=2:ls;                 
+y = data(2:hs,i);             %y取了xls文件中去掉头尾两列的所有列
+concentration = data(1,2:ls);
+%% 扣除基线
+for i=2:ls                 %这一段其实是网上SPA去趋势方法,每一列每一列地去除趋势
+    dat=data(2:hs,i);          %dat 分别读取了data中的每一列数据
+    N=length(dat);              % N = 1050
+    lambda=5000;
+    I=speye(N);                   %将产生一个N*N的稀疏矩阵，对角线上的值为1
+    D2 = spdiags(ones(N-2,1)*[1 -2 1],[0 1 2],N-2,N);  %高通滤波，但是原理不知道
+    %这条命令返回带状稀疏矩阵，D2的大小为1013 * 1015
+    %ones(N-2,1)*[1 -2 1]为1013*3的数组，一三两列是1，第二列是-2  N-2，N分别指定了
+    %行和列的维数,将会得到对角线分别为1 -2 1的矩阵，为什么要N-2 因为要对称啊，
+    %三条“对角线”
+    trend = (I+lambda^2*(D2'*D2))\dat;%将inv改为/可以增加运算速度
+    %     D2*D2'为1013*1013的矩阵
+    y=dat-trend;
+    jxoutput(:,i-1)=(y);
+end
+%   subplot(h2),    整体代码里面有这一段，h2是定义的坐标轴
+%以上循环是对每一条曲线都拉基线，dat是原始数据，y是拉完基线后的数据，最后每组拉完基线后的数据
+%都会在jxoutput中。
+% plot(x,dat,'r');
+% hold on;
+% plot(x,y)
+% title('最后一组拉基线对比图')
+% legend('原始数据','拉完基线后')
+% xlabel('波数'),ylabel('峰值强度');
+%% 小波滤波
+result=zeros(ls-1,hs-1);         %建立一个30*1015的零矩阵
+k=1;
+for i=1:ls-1
+    ss=jxoutput(:,i)';
+    s=ss(1:N);
+    %  subplot(h1);          整体代码里面有这一段，h1是定义的坐标轴
+    % plot(x,s);
+    % xlabel('波数');
+    % ylabel('幅值 A');
+    % title('原始信号');
+    [c,l]=wavedec(s,3,'db1'); %wavedec就是小波分解，将一个信号分解成指定层数n，并返回各层的小波系数。
+    %此处是对信号s用小波db1进行三层分解
+    a3=appcoef(c,l,'db1',3);            %取分解后的近似部分，也就是第三层低频系数
+    d3=detcoef(c,l,3);                  %取分解后的细节部分，第三层高频系数
+    d2=detcoef(c,l,2);%app是近似，dec是细节，coefs 是小波变换后的返回系数Wf(a,b)矩阵
+    d1=detcoef(c,l,1);
+    softd1=wthresh(d1,'s',70);    %wthresh函数根据sorh的值计算分解系数的软阈值或硬阈值
+    softd2=wthresh(d2,'s',70);
+    softd3=wthresh(d3,'s',70);
+    c2=[a3,softd3,softd2,softd1];
+    s3=waverec(c2,l,'db1');           %将给定的小波完全一次性重构出信号
+    %下面这一段代码是作图用的，依次作出曲线软阈值消噪后的结果
+    % plot(x,s3,'LineWidth',1);
+    % xlabel('波数');
+    % ylabel('幅值 A');
+    % title('给定软阈值消噪后的信号');
+    result(k,1:N)=s3;
+    k=k+1;
+end
+% figure(2)
+% plot(x,result');
+% title('所有曲线给定软阈值消噪后的信号');
+% xlabel('波数'),ylabel('峰值强度');
+%% 峰值定位
+aa=result;      %aa是给定软阈值消噪后的结果
+bb=jxoutput';   
+x = x';
+xx=x(1,:);                 %  xx将x的内容全部取了出来，差不多就是赋值了
+t=1;
+for kk=1:ls-1
+    yy=aa(kk,:);       %每次循环，yy取aa的一行，就是依次取出给定软阈值消噪后的每一行
+    qjxqd=bb(kk,:);              %取基线求导，每次循环qjxqd取bb的一行
+    [v,l]=findpeaks(yy,'minpeakheight',200,'minpeakdistance',10);   %%%这里的参数其实还有优化空间,
+    %l返回峰的横坐标，v返回峰的纵坐标
+    fz=bb(kk,l);
+    if size(l,2)>1            %size(l,2)判断l有几列，就是取到了几个特征峰
+        zz=x(1,l(1,:));        %l(1,:)对应特征峰的横坐标的排序，zz则为特征峰的纵坐标
+        fz=bb(kk,l);           %fz为特征峰的峰值
+    else
+        zz(1,8)=0;            %将zz数组1行*8列的数据空的用0补齐
+        fz(1,8)=0;            %将fz数组1行*8列的数据空的用0补齐
+    end
+    n=1;
+    cc=[zz;fz(1,:)];             %cc为一个两行的矩阵，列数为提取的特征峰个数，第一行为纵坐标，第二行为峰值
+    cc=cc';                 %cc转置后变一个两列的矩阵，行数为提取的特征峰个数，第一列为纵坐标，第二列为峰值
+    d=sortrows(cc,-2);      %d矩阵就是将cc矩阵第一列（纵坐标）从低到高排序后的结果
+    if size(d,1)>8           %size(d,1)取的是d矩阵的列数，同样是提取到的特征峰的个数
+        dd=d(1:8,:);         %如果dd矩阵提取到的特征峰的个数大于8，也只取前八个
+    elseif size(d,1)<8||size(d,1)>0       %一般来说都是这种情况，提取到的特征峰个数在0-8之间
+        dd=d(1:size(d,1),:);              %dd取了前6行所有列，就是相当于全取了
+        dd(size(d,1)+1:8,:)=0;         %然后将剩下的列填充0，填到8个为止
+    else
+        dd(8,:)=0;                    %将dd矩阵扩充到8行并且缺省值用0替代
+    end
+    tzf(:,2*t-1:2*t)=(dd);           %不断将dd矩阵写入到特征峰中去，一条曲线两列，第一列特征峰波数，第二列特征峰峰高
+    t=t+1;
+end
+A =tzf;                              %为什么后面的曲线取到的特征峰少，因为findpeaks函数设置的参数不同
+
+%% Elman神经网络处理
+%% 初始数据读取
+aa=tzf(1:8,2:2:end);
+[a,PS]=mapminmax(aa);
+[ml,nl] = size(a)
+p_train=a(1:ml,1:nl);
+t_train=concentration;
+p_test=a(1:ml,1:nl);
+t_test=concentration;
+%% 网络训练
+nn=2;
+for i=1:1
+threshold=[-1 1;-1 1;-1 1;-1 1;-1 1;-1 1;-1 1;-1 1];
+net=newelm(threshold,[nn(i),1],{'tansig','purelin'});
+net.trainparam.epochs=2000;
+net.trainparam.show=20;
+net=init(net);
+net=train(net,p_train,t_train);             % 计算误差
+y=sim(net,p_test);                   %     error(i,:)=y-t_test;
+error(i,:)=y-t_test;
+end
+first_error = mse(error);
+a_predict_result = sqrt(first_error);
+
+plot(1:1:5,t_test,'o');
+hold on;
+plot(1:1:5,y,'r*');
+legend('实际测试集分类','预测测试集分类');
+title('测试集的实际分类和预测分类图','FontSize',12);
+
+%% 浓度输出报告
+concentration_wanted = y(end);         %这里输出的还是浓度的幂次方
+disp(['该样品的浓度为:10^',num2str(concentration_wanted)])
+concentration_demo = 10^concentration_wanted;
+disp(['等价于该样品的浓度为:',num2str(concentration_demo)])
