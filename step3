@@ -1,0 +1,80 @@
+%% 第三步，小波滤波
+%% 数据读取
+clc,clear,close all
+data = xlsread('标准数据示例.xlsx');   %xlsread读取数据
+[hs,ls]=size(data);         %得出数据的维度
+x = data(2:hs,1);
+i=2:ls
+y = data(2:hs,i);             %y取了xls文件中去掉头尾两列的所有列
+concentration = data(1,2:ls);
+%% 扣除基线
+for i=2:ls                 %这一段其实是网上SPA去趋势方法,每一列每一列地去除趋势
+    dat=data(2:hs,i);          %dat 分别读取了data中的每一列数据
+    N=length(dat);              % N = 1050
+    lambda=5000;
+    I=speye(N);                   %将产生一个N*N的稀疏矩阵，对角线上的值为1
+    D2 = spdiags(ones(N-2,1)*[1 -2 1],[0 1 2],N-2,N);  %高通滤波，但是原理不知道
+    %这条命令返回带状稀疏矩阵，D2的大小为1013 * 1015
+    %ones(N-2,1)*[1 -2 1]为1013*3的数组，一三两列是1，第二列是-2  N-2，N分别指定了
+    %行和列的维数,将会得到对角线分别为1 -2 1的矩阵，为什么要N-2 因为要对称啊，
+    %三条“对角线”
+    trend = (I+lambda^2*D2'*D2)\dat;%将inv改为/可以增加运算速度
+    %     D2*D2'为1013*1013的矩阵
+    y=dat-trend;
+    jxoutput(:,i-1)=[y];
+end;
+%   subplot(h2),    整体代码里面有这一段，h2是定义的坐标轴
+%以上循环是对每一条曲线都拉基线，dat是原始数据，y是拉完基线后的数据，最后每组拉完基线后的数据
+%都会在jxoutput中。
+% plot(x,dat,'r');
+% hold on;
+% plot(x,y)
+% title('最后一组拉基线对比图')
+% legend('原始数据','拉完基线后')
+% xlabel('波数'),ylabel('峰值强度');
+%% 扣除基线完再次滤波
+[x1,y1] = sgsmooth(x,jxoutput);
+% figure(2)
+% plot(x,y1);
+jxoutput = y1;
+%% 小波滤波
+result=zeros(ls-1,hs-1);         %建立一个30*1015的零矩阵
+k=1;
+for i=1:ls-1
+    ss=jxoutput(:,i)';
+    s=ss(1:N);
+    plot(x,s);
+    xlabel('波数');
+    ylabel('幅值 A');
+    title('原始信号');
+    [c,l]=wavedec(s,3,'db1'); %wavedec就是小波分解，将一个信号分解成指定层数n，并返回各层的小波系数。
+    %此处是对信号s用小波db1进行三层分解
+    a3=appcoef(c,l,'db1',3);            %取分解后的近似部分，也就是第三层低频系数
+    d3=detcoef(c,l,3);                  %取分解后的细节部分，第三层高频系数
+    d2=detcoef(c,l,2);%app是近似，dec是细节，coefs 是小波变换后的返回系数Wf(a,b)矩阵
+    d1=detcoef(c,l,1);
+    softd1=wthresh(d1,'s',70);    %wthresh函数根据sorh的值计算分解系数的软阈值或硬阈值
+    softd2=wthresh(d2,'s',70);
+    softd3=wthresh(d3,'s',70);
+    c2=[a3,softd3,softd2,softd1];
+    s3=waverec(c2,l,'db1');           %将给定的小波完全一次性重构出信号
+    %  subplot(h2);    整体代码里面有这一段，h1是定义的坐标轴
+    %下面这一段代码是作图用的，依次作出曲线软阈值消噪后的结果
+    plot(x,s3,'LineWidth',1);
+    xlabel('波数');
+    ylabel('幅值 A');
+    title('给定软阈值消噪后的信号');
+    result(k,1:N)=s3;
+    k=k+1;
+end
+figure(2)
+plot(x,result');
+title('所有曲线给定软阈值消噪后的信号');
+xlabel('波数'),ylabel('峰值强度');
+
+result = result';
+
+jiee = result(:,5);
+plot(x,y)
+hold on
+plot(x,jiee);
