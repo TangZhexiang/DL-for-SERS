@@ -1,0 +1,16 @@
+function [x1,y1] = sgsmooth(x,y)
+y = y';
+[m,n] = size(y);
+h = [-2, 3, 6, 7, 6, 3, -2 ]/21;
+e = zeros(1,n);
+e(1,1:3) = y(1,1:3);
+e(1,n-2:n) = y(1,n-2:n);
+y1 = y;
+for i = 1:m
+    for k=4:1:n-3
+        y1(i,k) = y1(i,k-3)*h(1)+y1(i,k-2)*h(2)+y1(i,k-1)*h(3)+y1(i,k)*h(4)+...
+            y1(i,k+1)*h(5)+y1(i,k+2)*h(6)+y1(i,k+3)*h(7);
+    end
+end
+y1 = y1';
+x1 = x;
